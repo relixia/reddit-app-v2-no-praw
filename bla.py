@@ -65,7 +65,7 @@ async def login_to_reddit(page, username, password):
 
         try:
             # Wait for the login success element
-            success_element = await page.wait_for_selector('#USER_DROPDOWN_ID', timeout=5000)
+            success_element = await page.wait_for_selector('#USER_DROPDOWN_ID', timeout=50000)
             if success_element:
                 print("Successfully logged in to Reddit!")
                 break
