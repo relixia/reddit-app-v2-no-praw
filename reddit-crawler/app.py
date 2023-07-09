@@ -1,27 +1,22 @@
 import asyncio
-import sqlite3
 import threading
-from quart import Quart
+from quart import Quart, render_template_string
 from quart.wrappers import Response
 from playwright.async_api import async_playwright
 from getpass import getpass
-from quart import render_template_string
+from models import Base, Post
+from database import engine, Session
 
 app = Quart(__name__)
+Base.metadata.create_all(bind=engine)
+
 
 @app.route('/posts')
 async def index():
     try:
-        # Connect to the database
-        conn = sqlite3.connect('posts.db')
-        c = conn.cursor()
-
-        # Retrieve all posts from the database
-        c.execute('SELECT * FROM posts')
-        posts = c.fetchall()
-
-        # Close the database connection
-        conn.close()
+        session = Session()
+        posts = session.query(Post).all()
+        session.close()
 
         template = """
         <html>
@@ -33,8 +28,8 @@ async def index():
             <ul>
             {% for post in posts %}
                 <li>
-                    <a href="{{ post[2] }}" target="_blank">{{ post[0] }}</a>
-                    <span>by {{ post[1] }}</span>
+                    <a href="{{ post.url }}" target="_blank">{{ post.title }}</a>
+                    <span>by {{ post.author }}</span>
                 </li>
             {% endfor %}
             </ul>
@@ -93,30 +88,25 @@ async def get_subreddit_post_text(page):
     url_elements = await page.query_selector_all('a[data-click-id="body"]')
     urls = [f"https://www.reddit.com{await url_element.get_attribute('href')}" for url_element in url_elements]
 
-    # Connect to the database
-    conn = sqlite3.connect('posts.db')
-    c = conn.cursor()
-
-    # Create a table if it doesn't exist
-    c.execute('''CREATE TABLE IF NOT EXISTS posts
-                (title TEXT, author TEXT, url TEXT)''')
+    # Create a session
+    session = Session()
 
     # Store each post in the database
     for title, author, url in zip(titles, usernames, urls):
         # Check if the post already exists in the database
-        c.execute('SELECT COUNT(*) FROM posts WHERE url = ?', (url,))
-        count = c.fetchone()[0]
-        if count == 0:
-            c.execute('INSERT INTO posts VALUES (?, ?, ?)', (title, author, url))
+        post = session.query(Post).filter_by(url=url).first()
+        if not post:
+            post = Post(title=title, author=author, url=url)
+            session.add(post)
             print(f"Post stored: {title} by {author}, URL: {url}")
         else:
-            print(f"Post already exists: {title} by {author}, URL: {url}")
+            print(f"Post already exists: {title} by {author}")
 
-    # Commit changes
-    conn.commit()
+    # Commit the session to persist the changes in the database
+    session.commit()
 
-    # Close the database connection
-    # conn.close()
+    # Close the session
+    session.close()
 
 
 async def retrieve_data_for_subreddits(subreddits):
@@ -138,7 +128,7 @@ async def retrieve_data_for_subreddits(subreddits):
                 await page.goto(url, timeout=200000000)
 
                 await get_subreddit_post_text(page)
-                print(f"Data retrieved for subreddit: {subreddit}")
+                print(f"Data retrieved for subreddit: {subreddit}\n")
 
                 # Delay for 5 seconds before going to the next subreddit
                 await asyncio.sleep(5)
